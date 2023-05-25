@@ -16,23 +16,65 @@ var gameMode = {
 	maxPlayers: 4
 }
 
+var prefixs = ['⚽', '👟', '🥊', '🧤'];
 var playerQueue = new Array();
 var commandList = new Object();
 var botData = new Object();
 
+function showPrefixs() {
+	var list = "";
+	
+	for (var i = 0; i<prefixs.length; i++) {
+		list += (i+1) + ". " + prefixs[i] + "\n";
+	}
+
+	return list;
+}
+
+function throwCmd(player, msg) {
+	room.sendAnnouncement("🤖: ERROR, " + msg, player.id, 0xff0000,"bold", 2);
+}
+
+function catchCmd(player, msg) {
+	room.sendAnnouncement("🤖: " + msg, player.id, 0x00ff00,"bold", 1);
+}
+
 commandList["nick"] = {
 	roles: ["player"],
 	action(player, args) {
-		botData[player].nick = args.join(" ");
+		var newNick = args.join(" ");
+		if (nickInUse(newNick)) {
+			throwCmd(player, "el nick " + newNick + " esta en uso");
+			return;
+		}
+		
+		catchCmd(player, "nick cambiado a " + newNick);
+		botData[player.id].nick = args.join(" ");
 	}
 };
 
 commandList["unick"] = {
 	roles: ["player"],
 	action(player, args) {
-		botData[player].nick = player.name;
+		botData[player.id].nick = player.name;
 	}
 };
+
+commandList["prefijo"] = {
+	roles: ["player"],
+	action(player, args) {
+		var num = +args[0];
+		
+		if (isNaN(num) || num <= 0 || num > prefixs.length) {
+			throwCmd(player, "no ingresaste un numero valido.");
+			room.sendAnnouncement("Lista de prefijos:\n" + showPrefixs(), player.id);
+			return;
+		}
+
+		catchCmd(player, "tu nuevo prefijo es " + prefixs[num-1]);
+		botData[player.id].prefix = prefixs[num-1];
+	}
+}
 
 function getTeam(team) {
 	var playerList = room.getPlayerList();
@@ -91,18 +133,45 @@ room.onPlayerLeave = function(player) {
 }
 
 room.onPlayerJoin = function(player) {
-	botData[player] = {
+	botData[player.id] = {
 		nick: player.name,
-		role: "player"
+		role: "player",
+		prefix: null
 	}
+
+	room.sendAnnouncement(``, player.id);
 	
 	playerQueue.push(player.id);
 }
 
+function nickInUse(nick) {
+	for (playerData of Object.values(botData)) {
+		if (playerData.nick == nick) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+function getPlayerChatColor(player) {
+	if (player.team == teams.spec) {
+		return 0x000000;
+	} else if (player.team == teams.red) {
+		return 0xE56E56;
+	} else {
+		return 0x5689E5;
+	}
+}
+
 function playerChat(player, msg) {
-	var chatMsg = botData[player].nick + ": " + msg;
+	var chatMsg = "";
+	if (botData[player.id].prefix != null ) {
+		chatMsg = "[" + botData[player.id].prefix + "] "
+	}
 	
-	room.sendAnnouncement(chatMsg, null);
+	chatMsg += botData[player.id].nick + ": " + msg;
+	room.sendAnnouncement(chatMsg, null, getPlayerChatColor(player));
 }
 
 function isCommand(msg) {
@@ -113,10 +182,10 @@ function executeCommand(player, cmd) {
 	var args = cmd.split(" ").slice(1);
 	cmd = cmd.split(" ").slice(0,1);
 	
-	if (commandList[cmd] != null && commandList[cmd].roles.includes(botData[player].role)) {
+	if (commandList[cmd] != null && commandList[cmd].roles.includes(botData[player.id].role)) {
 		commandList[cmd].action(player, args);
 	} else {
-		room.sendAnnouncement("Comando Invalido!", player.id);
+		throwCmd(player, cmd + " no es un comando valido");
 	}
 }
 
@@ -132,4 +201,3 @@ room.onPlayerChat = function(player, msg) {
 }
 
 setInterval(checkQueue, 150);
-
