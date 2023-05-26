@@ -1,7 +1,7 @@
 var room = HBInit({
 	roomName: "room",
 	public: false,
-	token: "thr1.AAAAAGRu29lkvAEltXstNA.bzjj6n1-Tmc",
+	token: "thr1.AAAAAGRwIHqcAyU73gODSg.co279MshnWA",
 	maxPlayers: 16,
 	noPlayer: true
 });
@@ -32,7 +32,7 @@ function showPrefixs() {
 }
 
 function throwCmd(player, msg) {
-	room.sendAnnouncement("🤖: ERROR, " + msg, player.id, 0xff0000,"bold", 2);
+	room.sendAnnouncement("🤖: ¡ERROR, " + msg + "!", player.id, 0xff0000,"bold", 2);
 }
 
 function catchCmd(player, msg) {
@@ -44,7 +44,7 @@ commandList["nick"] = {
 	action(player, args) {
 		var newNick = args.join(" ");
 		if (nickInUse(newNick)) {
-			throwCmd(player, "el nick " + newNick + " esta en uso");
+			throwCmd(player, "el nick " + newNick + " está en uso");
 			return;
 		}
 		
@@ -66,13 +66,35 @@ commandList["prefijo"] = {
 		var num = +args[0];
 		
 		if (isNaN(num) || num <= 0 || num > prefixs.length) {
-			throwCmd(player, "no ingresaste un numero valido.");
+			throwCmd(player, "no ingresaste un numero válido.");
 			room.sendAnnouncement("Lista de prefijos:\n" + showPrefixs(), player.id);
 			return;
 		}
 
 		catchCmd(player, "tu nuevo prefijo es " + prefixs[num-1]);
 		botData[player.id].prefix = prefixs[num-1];
+	}
+}
+
+function removeFromQueue(player) {
+	playerQueue = playerQueue.filter(pid => pid != player.id);
+}
+
+function isInQueue(player) {
+	return playerQueue.find(pid => pid == player.id);
+}
+
+commandList["afk"] = {
+	roles: ["player"],
+	action(player, args) {
+		if (player.team != teams.spec || isInQueue(player)) {
+			catchCmd(player, "entraste en modo AFK");
+			room.setPlayerTeam(player.id, teams.spec);
+			removeFromQueue(player);
+		} else {
+			catchCmd(player, "saliste del modo AFK");
+			playerQueue.push(player.id);
+		}
 	}
 }
 
@@ -113,7 +135,7 @@ function checkQueue() {
 		if (playerStillWaiting(player_id)) {
 			room.setPlayerTeam(player_id, priority);
 		} else {
-			playerQueue = playerQueue.filter(pid => pid != player_id);
+			removeFromQueue(player_id);
 		}
 	}
 }
@@ -129,7 +151,7 @@ room.onTeamVictory = function(scores) {
 }
 
 room.onPlayerLeave = function(player) {
-	playerQueue = playerQueue.filter(pid => pid != player.id);
+	removeFromQueue(player);
 }
 
 room.onPlayerJoin = function(player) {
@@ -139,8 +161,7 @@ room.onPlayerJoin = function(player) {
 		prefix: null
 	}
 
-	room.sendAnnouncement(``, player.id);
-	
+	room.sendAnnouncement(`¡Bienvenido, ` + player.name + `!`, player.id);
 	playerQueue.push(player.id);
 }
 
@@ -156,7 +177,7 @@ function nickInUse(nick) {
 
 function getPlayerChatColor(player) {
 	if (player.team == teams.spec) {
-		return 0x000000;
+		return 0xffffff;
 	} else if (player.team == teams.red) {
 		return 0xE56E56;
 	} else {
@@ -185,7 +206,7 @@ function executeCommand(player, cmd) {
 	if (commandList[cmd] != null && commandList[cmd].roles.includes(botData[player.id].role)) {
 		commandList[cmd].action(player, args);
 	} else {
-		throwCmd(player, cmd + " no es un comando valido");
+		throwCmd(player, cmd + " no es un comando válido");
 	}
 }
 
