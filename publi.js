@@ -1,7 +1,7 @@
 var room = HBInit({
 	roomName: "room",
 	public: false,
-	token: "thr1.AAAAAGRwIHqcAyU73gODSg.co279MshnWA",
+	token: "thr1.AAAAAGRxWlTYU1hk3VBxXw.2QDyIEYX6Yo",
 	maxPlayers: 16,
 	noPlayer: true
 });
@@ -18,6 +18,15 @@ var gameMode = {
 
 var prefixs = ['⚽', '👟', '🥊', '🧤'];
 var playerQueue = new Array();
+
+function removeFromQueue(player) {
+	playerQueue = playerQueue.filter(pid => pid != player.id);
+}
+
+function isInQueue(player) {
+	return playerQueue.find(pid => pid == player.id);
+}
+
 var commandList = new Object();
 var botData = new Object();
 
@@ -37,6 +46,14 @@ function throwCmd(player, msg) {
 
 function catchCmd(player, msg) {
 	room.sendAnnouncement("🤖: " + msg, player.id, 0x00ff00,"bold", 1);
+}
+
+function botAnnounce(player, msg) {
+	room.sendAnnouncement("🤖: " + msg, player.id, 0x57a9c2,"bold", 1);
+}
+
+function botWarning(player, msg) {
+	room.sendAnnouncement("🤖: ¡" + msg + "!", player.id, 0xffff00, "bold", 2);
 }
 
 commandList["nick"] = {
@@ -76,12 +93,9 @@ commandList["prefijo"] = {
 	}
 }
 
-function removeFromQueue(player) {
-	playerQueue = playerQueue.filter(pid => pid != player.id);
-}
-
-function isInQueue(player) {
-	return playerQueue.find(pid => pid == player.id);
+function setAFKmode(player) {
+	room.setPlayerTeam(player.id, teams.spec);
+	removeFromQueue(player);
 }
 
 commandList["afk"] = {
@@ -89,8 +103,7 @@ commandList["afk"] = {
 	action(player, args) {
 		if (player.team != teams.spec || isInQueue(player)) {
 			catchCmd(player, "entraste en modo AFK");
-			room.setPlayerTeam(player.id, teams.spec);
-			removeFromQueue(player);
+			setAFKmode(player);
 		} else {
 			catchCmd(player, "saliste del modo AFK");
 			playerQueue.push(player.id);
@@ -208,6 +221,31 @@ function executeCommand(player, cmd) {
 	} else {
 		throwCmd(player, cmd + " no es un comando válido");
 	}
+}
+
+function setInactivityTimeout(player) {
+	if (player.team == teams.spec) return;
+	
+	botData[player.id].last = setTimeout(() => {
+		botAnnounce(player, "Inactividad detectada, se te asignará modo AFK en 5 s");
+		botData[player.id].last = setTimeout(() => {
+			botWarning(player, "Entraste en modo AFK");
+			setAFKmode(player);
+		}, 5000);
+	}, 5000);
+}
+
+room.onPlayerActivity = function(player) {
+	if (player.team == teams.spec) return;
+	
+	clearTimeout(botData[player.id].last);
+	setInactivityTimeout(player);
+}
+
+room.onPlayerTeamChange = function(player) {
+	if (player.team == teams.spec) return;
+	
+	setInactivityTimeout(player);
 }
 
 room.onPlayerChat = function(player, msg) {
