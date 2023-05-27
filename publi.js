@@ -101,6 +101,9 @@ commandList["prefijo"] = {
 function setAFKmode(player) {
 	room.setPlayerTeam(player.id, teams.spec);
 	removeFromQueue(player);
+	botData[player].last = setTimeout(() => {
+		room.kick(player.id, "10 minutos AFK");
+	}, 60000 * 10);
 }
 
 commandList["afk"] = {
@@ -108,12 +111,14 @@ commandList["afk"] = {
 	action(player, args) {
 		if (player.team != teams.spec || isInQueue(player)) {
 			catchCmd(player, "entraste en modo AFK");
-			clearTimeout(botData[player.id].last);
 			setAFKmode(player);
 		} else {
 			catchCmd(player, "saliste del modo AFK");
 			playerQueue.push(player.id);
 		}
+
+		// clear afk timeout (if not afk) or kick timeout (if afk)
+		clearTimeout(botData[player.id].last);
 	}
 }
 
