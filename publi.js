@@ -103,6 +103,7 @@ commandList["afk"] = {
 	action(player, args) {
 		if (player.team != teams.spec || isInQueue(player)) {
 			catchCmd(player, "entraste en modo AFK");
+			clearTimeout(botData[player.id].last);
 			setAFKmode(player);
 		} else {
 			catchCmd(player, "saliste del modo AFK");
