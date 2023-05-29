@@ -6,6 +6,8 @@ var room = HBInit({
 	noPlayer: true
 });
 
+var adminAuths = [ "ob40bCoCsu02IF9ZotmxSUVn57evwhFEoMvuom5eEzM" ];
+
 const teams = {
 	spec: 0,
 	red: 1,
@@ -77,11 +79,42 @@ function registerPlayer(player) {
 	botData[player.name].role = "player";
 }
 
-commandList["radio"] = {
-	roles: ["guest", "player"],
+function showCmds(player) {
+	var role = botData[botIDs[player.id]].role;
+	var cmds = Object.keys(commandList).filter(cmd => commandList[cmd].roles.includes(role));
+
+	return cmds.join(", ");
+}
+
+commandList["ayuda"] = {
+	roles: ["guest", "player", "admin"],
+	help: " <comando>: muestra una ayuda del comando ingresado",
 	action(player, args) {
+		if (args[0] == null) {
+			botAnnounce(player, "Lista de comandos: " + showCmds(player));
+			botAnnounce(player, "Podes ingresar !ayuda <comando> para ver una ayuda de uno en particular");
+			return;
+		}
+
+		if (commandList[args[0]] == null || !commandList[args[0]].roles.includes(botData[botIDs[player.id]].role)) {
+			throwCmd(player, `"` + args[0] + `" no es un comando válido`);
+		} else {
+			botAnnounce(player, "!"+ args[0] + commandList[args[0]].help);
+		}
+	}
+}
+
+commandList["radio"] = {
+	roles: ["guest", "player", "admin"],
+	help: " <número del 12 al 18>: cambia el radio de tu ficha, el radio por defecto es 15",
+	action(player, args) {
+		if (room.getScores() == null || player.team != teams.spec) {
+			throwCmd(player, "solo podés modificar tu radio si estás en juego");
+			return;
+		}
+		
 		var num = +args[0]
-		if (!validateNumber(num, 9, 18)) {
+		if (!validateNumber(num, 11, 18)) {
 			throwCmd(player, "no ingresaste un numero válido");
 			botAnnounce(player, "Solo se permiten números entre 10 y 18");
 			return;
@@ -95,6 +128,7 @@ commandList["radio"] = {
 
 commandList["registrarme"] = {
 	roles: ["guest"],
+	help: ": te registra como usuario",
 	action(player, args) {
 		if (botData[player.name] != null) {
 			throwCmd(player, player.name + " ya está registrado");
@@ -109,7 +143,8 @@ commandList["registrarme"] = {
 }
 
 commandList["nick"] = {
-	roles: ["player", "guest"],
+	roles: ["player", "guest", "admin"],
+	help: " <nuevo nick>: cambia tu nick a <nuevo nick>",
 	action(player, args) {
 		var newNick = args.join(" ");
 		if (nickInUse(newNick)) {
@@ -123,14 +158,16 @@ commandList["nick"] = {
 };
 
 commandList["unick"] = {
-	roles: ["player", "guest"],
+	roles: ["player", "guest", "admin"],
+	help: ": restaura tu nick original",
 	action(player, args) {
 		botData[botIDs[player.id]].nick = player.name;
 	}
 };
 
 commandList["prefijo"] = {
-	roles: ["player", "guest"],
+	roles: ["player", "guest", "admin"],
+	help: " <numero del 1 al " + (prefixs.length+1) + ">: cambia tu prefijo",
 	action(player, args) {
 		var num = +args[0];
 		
@@ -154,7 +191,8 @@ function setAFKmode(player) {
 }
 
 commandList["afk"] = {
-	roles: ["player", "guest"],
+	roles: ["player", "guest", "admin"],
+	help: ": te pone (o te saca) del modo AFK",
 	action(player, args) {
 		// clear afk timeout (if not afk) or kick timeout (if afk)
 		clearTimeout(botData[botIDs[player.id]].last);
@@ -256,6 +294,12 @@ function loadGuestSession(player) {
 }
 
 function loadPlayerData(player) {
+	if (adminAuths.includes(player.auth)) {
+		room.setPlayerAdmin(player.id, true);
+		botData[player.name].role = "admin";
+		botWarning({ id: null }, "Ha entrado el admin " + player.name);
+	}
+	
 	room.setPlayerDiscProperties(player.id, {radius: botData[player.name].radius});
 	botIDs[player.id] = player.name;
 }
@@ -298,7 +342,9 @@ function nickInUse(nick) {
 }
 
 function getPlayerChatColor(player) {
-	if (player.team == teams.spec) {
+	if (player.admin) {
+		return 0xFFD700;
+	} else if (player.team == teams.spec) {
 		return 0xffffff;
 	} else if (player.team == teams.red) {
 		return 0xE56E56;
