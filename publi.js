@@ -1,7 +1,7 @@
 var room = HBInit({
 	roomName: "room",
 	public: false,
-	token: "thr1.AAAAAGRxWlTYU1hk3VBxXw.2QDyIEYX6Yo",
+	token: "thr1.AAAAAGRz07Noka7GJKlydw.kLb_0QFQiR0",
 	maxPlayers: 16,
 	noPlayer: true
 });
@@ -23,6 +23,7 @@ function setGameMode(newGameMode) {
 
 var prefixs = ['⚽', '👟', '🥊', '🧤'];
 var playerQueue = new Array();
+var guestCount = 0;
 
 function removeFromQueue(player) {
 	playerQueue = playerQueue.filter(pid => pid != player.id);
@@ -34,6 +35,15 @@ function isInQueue(player) {
 
 var commandList = new Object();
 var botData = new Object();
+var botIDs = new Object();
+
+function validateNumber(num, minL, maxL) {
+	if (isNaN(num) || num <= minL || num > maxL) {
+		return false;
+	}
+
+	return true;
+}
 
 function showPrefixs() {
 	var list = "";
@@ -61,8 +71,45 @@ function botWarning(player, msg) {
 	room.sendAnnouncement("🤖: ¡" + msg + "!", player.id, 0xffff00, "bold", 2);
 }
 
+function registerPlayer(player) {
+	botData[player.name] = botData[botIDs[player.id]];
+	botIDs[player.id] = player.name;
+	botData[player.name].role = "player";
+}
+
+commandList["radio"] = {
+	roles: ["guest", "player"],
+	action(player, args) {
+		var num = +args[0]
+		if (!validateNumber(num, 9, 18)) {
+			throwCmd(player, "no ingresaste un numero válido");
+			botAnnounce(player, "Solo se permiten números entre 10 y 18");
+			return;
+		}
+
+		catchCmd(player, "Radio seteado a " + num);
+		room.setPlayerDiscProperties(player.id, {radius: num});
+		botData[botIDs[player.id]].radius = num;
+	}
+}
+
+commandList["registrarme"] = {
+	roles: ["guest"],
+	action(player, args) {
+		if (botData[player.name] != null) {
+			throwCmd(player, player.name + " ya está registrado");
+			botAnnounce(player, player.name + ", probá ingresar con otro nick");
+			return;
+		}
+		
+		catchCmd(player, "¡Te registré con éxito, " + player.name + "!");
+		catchCmd(player, "Tus estadísticas y customizaciones (prefijos, apodos, tamaño, etc) se guardarán automáticamente de ahora en más");
+		registerPlayer(player);
+	}
+}
+
 commandList["nick"] = {
-	roles: ["player"],
+	roles: ["player", "guest"],
 	action(player, args) {
 		var newNick = args.join(" ");
 		if (nickInUse(newNick)) {
@@ -70,55 +117,55 @@ commandList["nick"] = {
 			return;
 		}
 		
-		catchCmd(player, "nick cambiado a " + newNick);
-		botData[player.id].nick = args.join(" ");
+		catchCmd(player, "Nick cambiado a " + newNick);
+		botData[botIDs[player.id]].nick = args.join(" ");
 	}
 };
 
 commandList["unick"] = {
-	roles: ["player"],
+	roles: ["player", "guest"],
 	action(player, args) {
-		botData[player.id].nick = player.name;
+		botData[botIDs[player.id]].nick = player.name;
 	}
 };
 
 commandList["prefijo"] = {
-	roles: ["player"],
+	roles: ["player", "guest"],
 	action(player, args) {
 		var num = +args[0];
 		
-		if (isNaN(num) || num <= 0 || num > prefixs.length) {
+		if (!validateNumber(num, 0, prefixs.length)) {
 			throwCmd(player, "no ingresaste un numero válido");
 			botAnnounce(player, "Lista de prefijos:\n" + showPrefixs());
 			return;
 		}
 
-		catchCmd(player, "tu nuevo prefijo es " + prefixs[num-1]);
-		botData[player.id].prefix = prefixs[num-1];
+		catchCmd(player, "Tu nuevo prefijo es " + prefixs[num-1]);
+		botData[botIDs[player.id]].prefix = prefixs[num-1];
 	}
 }
 
 function setAFKmode(player) {
 	room.setPlayerTeam(player.id, teams.spec);
 	removeFromQueue(player);
-	botData[player].last = setTimeout(() => {
-		room.kick(player.id, "10 minutos AFK");
+	botData[botIDs[player.id]].last = setTimeout(() => {
+		room.kickPlayer(player.id, "🤖: 10 minutos AFK");
 	}, 60000 * 10);
 }
 
 commandList["afk"] = {
-	roles: ["player"],
+	roles: ["player", "guest"],
 	action(player, args) {
+		// clear afk timeout (if not afk) or kick timeout (if afk)
+		clearTimeout(botData[botIDs[player.id]].last);
+		
 		if (player.team != teams.spec || isInQueue(player)) {
-			catchCmd(player, "entraste en modo AFK");
+			catchCmd(player, "Entraste en modo AFK");
 			setAFKmode(player);
 		} else {
-			catchCmd(player, "saliste del modo AFK");
+			catchCmd(player, "Saliste del modo AFK");
 			playerQueue.push(player.id);
 		}
-
-		// clear afk timeout (if not afk) or kick timeout (if afk)
-		clearTimeout(botData[player.id].last);
 	}
 }
 
@@ -190,37 +237,64 @@ room.onGameTick = function() {
 }
 
 room.onPlayerLeave = function(player) {
+	clearTimeout(botData[botIDs[player.id]].last);
 	removeFromQueue(player);
 }
 
-function playerInit(player) {
-	botData[player.id] = {
-		nick: player.name,
-		role: "player",
-		prefix: null
-	}
+function loadGuestSession(player) {
+	botIDs[player.id] = "guest_" + guestCount;
+	guestCount += 1;
 	
-	playerQueue.push(player.id);
+	botData[botIDs[player.id]] = {
+		nick: player.name,
+		auth: player.auth,
+		conn: player.conn,
+		role: "guest",
+		prefix: null,
+		radius: room.getDiscProperties(player.id).radius
+	}
+}
+
+function loadPlayerData(player) {
+	room.setPlayerDiscProperties(player.id, {radius: botData[player.name].radius});
+	botIDs[player.id] = player.name;
 }
 
 function giveWelcome(player) {
 	botAnnounce(player, "¡Bienvenido, " + player.name + "!");
-	botAnnounce(player, "Soy el bot de esta sala. El comando !ayuda te permite ver los comandos disponibles");
+	botAnnounce(player, "Soy el bot de esta sala. Si querés guardar tus estadísticas y customizaciones, usá el comando !registrarme");
+	botAnnounce(player, "Mientras tanto, podés usar el comando !ayuda para ver los comandos disponibles");
+	loadGuestSession(player);
+}
+
+function isRegistered(player) {
+	return botData[player.name] != null;
+}
+
+function login(player) {
+	return player.auth == botData[player.name].auth || player.conn == botData[player.name].conn;
 }
 
 room.onPlayerJoin = function(player) {
-	playerInit(player);
-	giveWelcome(player);
+	playerQueue.push(player.id);
+
+	if (!isRegistered(player)) {
+		giveWelcome(player);
+		return;
+	}
+	
+	if (login(player)) {
+		loadPlayerData(player);
+		catchCmd(player, "¡Qué bueno volver a verte, " + player.name + "!");
+	} else {
+		botWarning(player, "No sos el de siempre, " + player.name);
+		botAnnuounce(player, "Te inicié una sesión de invitado. Para verificar que sos vos, contactate con un admin");
+		loadGuestSession(player);
+	}
 }
 
 function nickInUse(nick) {
-	for (playerData of Object.values(botData)) {
-		if (playerData.nick == nick) {
-			return true;
-		}
-	}
-
-	return false;
+	return Object.values(botData).some(playerData => playerData.nick == nick);
 }
 
 function getPlayerChatColor(player) {
@@ -235,11 +309,11 @@ function getPlayerChatColor(player) {
 
 function playerChat(player, msg) {
 	var chatMsg = "";
-	if (botData[player.id].prefix != null ) {
-		chatMsg = "[" + botData[player.id].prefix + "] "
+	if (botData[botIDs[player.id]].prefix != null ) {
+		chatMsg = "[" + botData[botIDs[player.id]].prefix + "] "
 	}
 	
-	chatMsg += botData[player.id].nick + ": " + msg;
+	chatMsg += botData[botIDs[player.id]].nick + ": " + msg;
 	room.sendAnnouncement(chatMsg, null, getPlayerChatColor(player));
 }
 
@@ -251,7 +325,7 @@ function executeCommand(player, cmd) {
 	var args = cmd.split(" ").slice(1);
 	cmd = cmd.split(" ").slice(0,1);
 	
-	if (commandList[cmd] != null && commandList[cmd].roles.includes(botData[player.id].role)) {
+	if (commandList[cmd] != null && commandList[cmd].roles.includes(botData[botIDs[player.id]].role)) {
 		commandList[cmd].action(player, args);
 	} else {
 		throwCmd(player, cmd + " no es un comando válido");
@@ -261,9 +335,9 @@ function executeCommand(player, cmd) {
 function setInactivityTimeout(player) {
 	if (player.team == teams.spec) return;
 	
-	botData[player.id].last = setTimeout(() => {
+	botData[botIDs[player.id]].last = setTimeout(() => {
 		botAnnounce(player, "Inactividad detectada, se te asignará modo AFK en 8 s");
-		botData[player.id].last = setTimeout(() => {
+		botData[botIDs[player.id]].last = setTimeout(() => {
 			botWarning(player, "Entraste en modo AFK");
 			setAFKmode(player);
 		}, 8000);
@@ -273,8 +347,12 @@ function setInactivityTimeout(player) {
 room.onPlayerActivity = function(player) {
 	if (player.team == teams.spec) return;
 	
-	clearTimeout(botData[player.id].last);
+	clearTimeout(botData[botIDs[player.id]].last);
 	setInactivityTimeout(player);
+}
+
+room.onGameStop = function(player) {
+	saveBotData();
 }
 
 room.onGameStart = function(player) {
@@ -302,7 +380,63 @@ room.onPlayerChat = function(player, msg) {
 	return false;
 }
 
-setInterval(checkQueue, 150);
+function writeRecord(content, ID) {
+	var myHeaders = new Headers();
+	myHeaders.append("Content-Type", "application/x-www-form-urlencoded");
+	myHeaders.append("x-collection-access-token", "5291cf7e-91d2-4cd4-9dc5-e63ef698e053");
+
+	var urlencoded = new URLSearchParams();
+	urlencoded.append("jsonData", content);
+
+	var requestOptions = {
+	  method: 'PUT',
+	  headers: myHeaders,
+	  body: urlencoded,
+	  redirect: 'follow'
+	};
+
+	fetch("https://api.myjson.online/v1/records/" + ID, requestOptions)
+	  .then(response => response.json())
+	  .then(result => console.log(result))
+	  .catch(error => console.log('error', error));
+}
+
+function saveBotData() {
+	var keysMinusGuests = Object.keys(botData).filter(id => id.slice(0,6) != "guest_");
+	var botDataMinusGuest = {};
+
+	for (key of keysMinusGuests) {
+		botDataMinusGuest[key] = botData[key];
+	}
+			 
+	writeRecord(JSON.stringify(botDataMinusGuest), "4bc9bcb0-d74f-4506-a4aa-dd0b137fa329");
+}
+
+function readRecord(ID, f) {
+	var myHeaders = new Headers();
+	myHeaders.append("Content-Type", "application/json"); 
+	myHeaders.append("x-collection-access-token", "5291cf7e-91d2-4cd4-9dc5-e63ef698e053");
+
+	var requestOptions = {
+	   method: 'GET',
+	   headers: myHeaders,
+	   redirect: 'follow'
+	};
+
+	fetch("https://api.myjson.online/v1/records/" + ID, requestOptions)
+	   .then(response => response.json())
+	   .then(result => f(result.data))
+	   .catch(error => { return {}; });
+}
+
+function loadBotData(data) {
+	// playerData
+	botData = { ...data };
+	console.log(botData);
+}
+
+setInterval(checkQueue, 500);
+readRecord("4bc9bcb0-d74f-4506-a4aa-dd0b137fa329", loadBotData);
 setGameMode({
 	maxPlayers: 4,
 	scoreLimit: 4,
