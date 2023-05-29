@@ -1,5 +1,5 @@
 var room = HBInit({
-	roomName: "room",
+	roomName: "𝗙𝗨𝗧𝗦𝗔𝗟 𝘅𝟰 + 𝗕𝗢𝗧 🤖 (test)",
 	public: false,
 	token: "thr1.AAAAAGRz07Noka7GJKlydw.kLb_0QFQiR0",
 	maxPlayers: 16,
@@ -18,12 +18,13 @@ var gameMode = new Object();
 
 function setGameMode(newGameMode) {
 	gameMode = newGameMode;
+	room.setTeamsLock(true);
 	room.setScoreLimit(newGameMode.scoreLimit);
 	room.setTimeLimit(newGameMode.duration);
 	room.setCustomStadium(newGameMode.map);
 }
 
-var prefixs = ['⚽', '👟', '🥊', '🧤'];
+var prefixs = ['⚽', '👟', '🥊', '🧤', '🧠', '💩', '🐴', '🐓'];
 var playerQueue = new Array();
 var guestCount = 0;
 
@@ -106,9 +107,9 @@ commandList["ayuda"] = {
 
 commandList["radio"] = {
 	roles: ["guest", "player", "admin"],
-	help: " <número del 12 al 18>: cambia el radio de tu ficha, el radio por defecto es 15",
+	help: " <número del 12 al 17>: cambia el radio de tu ficha, el radio por defecto es 15",
 	action(player, args) {
-		if (room.getScores() == null || player.team != teams.spec) {
+		if (room.getScores() == null || player.team == teams.spec) {
 			throwCmd(player, "solo podés modificar tu radio si estás en juego");
 			return;
 		}
@@ -116,7 +117,7 @@ commandList["radio"] = {
 		var num = +args[0]
 		if (!validateNumber(num, 11, 18)) {
 			throwCmd(player, "no ingresaste un numero válido");
-			botAnnounce(player, "Solo se permiten números entre 10 y 18");
+			botAnnounce(player, "Solo se permiten números entre 10 y 17");
 			return;
 		}
 
@@ -167,7 +168,7 @@ commandList["unick"] = {
 
 commandList["prefijo"] = {
 	roles: ["player", "guest", "admin"],
-	help: " <numero del 1 al " + (prefixs.length+1) + ">: cambia tu prefijo",
+	help: " <numero del 1 al " + (prefixs.length) + ">: cambia tu prefijo",
 	action(player, args) {
 		var num = +args[0];
 		
@@ -289,7 +290,7 @@ function loadGuestSession(player) {
 		conn: player.conn,
 		role: "guest",
 		prefix: null,
-		radius: room.getDiscProperties(player.id).radius
+		radius: 15
 	}
 }
 
@@ -328,8 +329,8 @@ room.onPlayerJoin = function(player) {
 	}
 	
 	if (login(player)) {
-		loadPlayerData(player);
 		catchCmd(player, "¡Qué bueno volver a verte, " + player.name + "!");
+		loadPlayerData(player);
 	} else {
 		botWarning(player, "No sos el de siempre, " + player.name);
 		botAnnuounce(player, "Te inicié una sesión de invitado. Para verificar que sos vos, contactate con un admin");
@@ -379,21 +380,19 @@ function executeCommand(player, cmd) {
 }
 
 function setInactivityTimeout(player) {
-	if (player.team == teams.spec) return;
-	
 	botData[botIDs[player.id]].last = setTimeout(() => {
-		botAnnounce(player, "Inactividad detectada, se te asignará modo AFK en 8 s");
+		botAnnounce(player, "Inactividad detectada, se te asignará modo AFK en 10 s");
 		botData[botIDs[player.id]].last = setTimeout(() => {
 			botWarning(player, "Entraste en modo AFK");
 			setAFKmode(player);
-		}, 8000);
-	}, 7000);
+		}, 10000);
+	}, 10000);
 }
 
 room.onPlayerActivity = function(player) {
-	if (player.team == teams.spec) return;
-	
 	clearTimeout(botData[botIDs[player.id]].last);
+	
+	if (player.team == teams.spec) return;
 	setInactivityTimeout(player);
 }
 
@@ -401,17 +400,48 @@ room.onGameStop = function(player) {
 	saveBotData();
 }
 
+function setRadius(player) {
+	room.setPlayerDiscProperties(player.id, { radius: botData[botIDs[player.id]].radius });
+}
+
 room.onGameStart = function(player) {
 	room.getPlayerList().forEach(player => {
 		if (player.team != teams.spec) {
+			setRadius(player);
 			setInactivityTimeout(player);
 		}
 	});
 }
 
-room.onPlayerTeamChange = function(player) {
+room.onPositionsReset = function() {
+	room.getPlayerList().forEach(player => {
+		if (player.team != teams.spec) {
+			setRadius(player);
+		}
+	});
+}
+
+function manageAdminTeamChange(player, admin) {
+	if (player.team == teams.spec) {
+		clearTimeout(botData[botIDs[player.id]].last);
+		setAFKmode(player);
+		botWarning(player, "El admin " + admin.name + " te puso afk");
+	} else {
+		playerQueue.filter(pid => pid != player.id);
+	}
+}
+
+room.onPlayerTeamChange = function(player, admin) {
 	if (teamLength().reds + teamLength().blues == 1) {
 		room.startGame();
+	}
+
+	if (admin != null) {
+		manageAdminTeamChange(player, admin);
+	}
+
+	if (room.getScores() != null && player.team != teams.spec) {
+		setRadius(player);
 	}
 }
 
