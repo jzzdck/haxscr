@@ -1,7 +1,7 @@
 var room = HBInit({
 	roomName: "𝗙𝗨𝗧𝗦𝗔𝗟 𝘅𝟰 + 𝗕𝗢𝗧 🤖 (test)",
 	public: false,
-	token: "thr1.AAAAAGRz07Noka7GJKlydw.kLb_0QFQiR0",
+	token: "thr1.AAAAAGR2ewvPcMuf12X8UA.RB2QDig98-s",
 	maxPlayers: 16,
 	noPlayer: true
 });
@@ -137,6 +137,47 @@ function parseShirtColor(cmd) {
 function setTeamShirt(teamID, shirtID) {
 	var shirt = shirtData[shirtID]
 	room.setTeamColors(teamID, shirt.angle, shirt.textColor, shirt.colors);
+}
+
+commandList["frase"] = {
+	roles: ["admin", "player"],
+	help: " <una frase>: guarda <una frase> para mostrar en tus estadísticas",
+	action(player, args) {
+		var phrase = args.join(" ");
+		if (phrase.length > 30) {
+			throwCmd(player, "frase muy larga");
+			botAnnounce(player, "Por favor, ingresá una frase mas corta");
+			return;
+		}
+
+		catchCmd(player, "Se guardó la frase '" + phrase + "'");
+		botData[botIDs[player.id]].phrase = phrase;
+	}
+}
+
+function botShowPlayer(player) {
+	var data = botData[botIDs[player.id]];
+	var winr = (data.mp > 0 ? data.mw/data.mp * 100 : 0);
+	var stats = "[ G: " + data.goals + " | A: " + data.assists + " | PJ: " + data.mp + " | WIN%: " + winr + "% ]"
+	room.sendAnnouncement("🤖: " + data.nick + " >> " + stats, null, 0xff00bb, "bold", 1);
+
+	if (data.phrase != null) {
+		room.sendAnnouncement("🤖: " + data.nick + " >> '" + data.phrase + "'", null, 0xff00bb, "italic", 1);
+	}
+}
+
+commandList["mostrarme"] = {
+	roles: ["player", "admin"],
+	help: ": les muestra tus estadísticas a toda la sala",
+	action(player, args) {
+		if (botData[botIDs[player.id]].antispam == null) {
+			botShowPlayer(player);
+			botData[botIDs[player.id]].antispam = true;
+			setTimeout(() => botData[botIDs[player.id]].antispam = null, 10000);
+		} else {
+			throwCmd(player, "todavía no podés volver a mostrarte");
+		}
+	}
 }
 
 commandList["cami"] = {
@@ -306,6 +347,7 @@ commandList["unick"] = {
 	help: ": restaura tu nick original",
 	action(player, args) {
 		botData[botIDs[player.id]].nick = player.name;
+		catchCmd(player, "Nick restaurado a " + player.name);
 	}
 };
 
@@ -405,8 +447,22 @@ function checkQueue() {
 	}
 }
 
+function teamsCompleted() {
+	return room.getPlayerList().filter(player => player.team != teams.spec).length == 2 * gameMode.maxPlayers;
+}
+
+function theOtherTeam(teamID) {
+	return 3-teamID;
+}
+
 room.onTeamVictory = function(scores) {
 	lastLoser = (scores.red > scores.blue ? teams.blue : teams.red);
+	if (teamsCompleted()) {
+		var winnerTeam = getTeam(theOtherTeam(lastLoser));
+		room.getPlayerList().filter(player => player.team != teams.spec).forEach(player => botData[botIDs[player.id]].mp += 1);
+		winnerTeam.forEach(player => botData[botIDs[player.id]].mw += 1);
+	}
+	
 	var loserTeam = getTeam(lastLoser);
 
 	loserTeam.forEach(player => {
