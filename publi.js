@@ -16,6 +16,14 @@ const teams = {
 
 var gameMode = new Object();
 
+function gameBeingPlayed() {
+	return room.getScores() != null;
+}
+
+function isPlaying(player) {
+	return gameBeingPlayed() && player.team != teams.spec;
+}
+
 function setGameMode(newGameMode) {
 	gameMode = newGameMode;
 	room.setTeamsLock(true);
@@ -25,6 +33,7 @@ function setGameMode(newGameMode) {
 }
 
 var prefixs = ['⚽', '👟', '🥊', '🧤', '🧠', '💩', '🐴', '🐓'];
+var lastLoser = 0;
 var playerQueue = new Array();
 var guestCount = 0;
 
@@ -38,21 +47,22 @@ function isInQueue(player) {
 
 var commandList = new Object();
 var botData = new Object();
+var shirtData = new Object();
 var botIDs = new Object();
 
 function validateNumber(num, minL, maxL) {
-	if (isNaN(num) || num <= minL || num > maxL) {
-		return false;
-	}
-
-	return true;
+	return !isNaN(num) && num > minL && num <= maxL;
 }
 
 function showPrefixs() {
 	var list = "";
 	
-	for (var i = 0; i<prefixs.length; i++) {
-		list += (i+1) + ". " + prefixs[i] + "\n";
+	for (var i = 1; i<=prefixs.length; i++) {
+		list += i + ". " + prefixs[i-1] + "\t";
+
+		if (i%4 == 0) {
+			list += "\n"
+		}
 	}
 
 	return list;
@@ -87,6 +97,139 @@ function showCmds(player) {
 	return cmds.join(", ");
 }
 
+function isHaxballColorCommand(cmd) {
+	cmd = cmd.split(" ");
+	if (cmd[0] != "/colors") {
+		return [false, "el comando debe empezar por /color"];
+	}
+
+	if (cmd[1] != "red" && cmd[1] != "blue") {
+		return [false, "el comando debe tener 'blue' o 'red' como segundo argumento"];
+	}
+
+	if (!validateNumber(Number(cmd[2]), -1, 360)) {
+		return [false, "angulo invalido"];
+	}
+
+	if (!validateNumber(Number("0x" + cmd[3]), -1, 0xffffff)) {
+		return [false, "color de texto invalido"];
+	}
+
+	for (var i = 4; i<cmd.length; i++) {
+		if (!validateNumber(Number("0x" + cmd[i]), -1, 0xffffff)) {
+			return [false, "color de franja " + (i-3) + " invalido"];
+		}
+	}
+
+	return [true, "ok"];
+}
+
+function parseShirtColor(cmd) {
+	var c = new Array(0);
+	cmd = cmd.split(" ");
+	for (var i = 4; i < cmd.length; i++) {
+		c.push(Number("0x" + cmd[i]));
+	}
+	
+	return { angle: Number(cmd[2]), textColor: Number("0x" + cmd[3]), colors: c };
+}
+
+function setTeamShirt(teamID, shirtID) {
+	var shirt = shirtData[shirtID]
+	room.setTeamColors(teamID, shirt.angle, shirt.textColor, shirt.colors);
+}
+
+commandList["cami"] = {
+	roles: ["admin"],
+	help: " <blue o red> <id>: carga la camiseta <id> al team <blue o red>",
+	action(player, args) {
+		if (args[0] != "red" && args[0] != "blue") {
+			throwCmd(player, "equipo mal ingresado (recuerda, !color red <id> o !color blue <id>");
+			return;
+		}
+
+		if (shirtData[args[1]] ==  null) {
+			throwCmd(player, "ID inválida");
+			return;
+		}
+
+		var teamid = (args[0] == "red" ? 1 : 2);
+		setTeamShirt(teamid, args[1]);
+	}
+}
+
+commandList["mcami"] = {
+	roles: ["admin"],
+	help: ": muestra las camisetas disponibles",
+	action(player, args) {
+		function shirtsWithCat(v) {
+			return Object.keys(shirtData).filter(shirt => shirt != "CAT" && shirtData[shirt].category == v);
+		};
+		
+		var list = shirtData["CAT"].reduce((a,v,i) => a += v + ": " + shirtsWithCat(v).join(", ") + "\n", "");
+		list += "Misc: " + shirtsWithCat(null).join(", ");
+
+		botAnnounce(player, list);
+	}
+}
+
+commandList["scami"] = {
+	roles: ["admin"],
+	help: " <comando de haxball> <id>: guarda una camiseta en el sistema",
+	action(player, args) {
+		var haxcmd = args.slice(0,-1).join(" ");
+		var id = args[args.length-1];
+		var checkCmd = isHaxballColorCommand(haxcmd);
+
+		if (!checkCmd[0]) {
+			throwCmd(player, checkCmd[1]);
+			return;
+		}
+
+		if (id.length < 5) {
+			throwCmd(player, id + " es una ID inválida");
+			botAnnounce(player, "la ID debe tener como mínimo 5 letras");
+			return;
+		}
+
+		if (shirtData[id] != null) {
+			throwCmd(player, "ID en uso");
+			return;
+		}
+
+		shirtData[id] = parseShirtColor(haxcmd);
+		saveShirtData();
+		catchCmd(player, "Camiseta " + id + " guardada con éxito");
+	}
+}
+
+function showCAT() {
+	return shirtData["CAT"].reduce((a, v, i) => a + (i+1) + ". " + v + "\n", "");
+}
+
+commandList["tcami"] = {
+	roles: ["admin"],
+	help: " <id> <cat>: la asigna la categoría <cat> a la camiseta <id>",
+	action(player, args) {
+		if (shirtData[args[0]] == null) {
+			throwCmd(player, "la camiseta no existe");
+			return;
+		}
+
+		var num = +args[1];
+		if (!validateNumber(num, 0, shirtData["CAT"].length)) {
+			throwCmd(player, "número invalido");
+			botAnnounce(player, "Lista de categorías:\n" + showCAT());
+			return;
+		}
+
+		var cat = shirtData["CAT"][num-1];
+		catchCmd(player, "La camiseta " + args[0] + " se registró en la categoría " + cat);
+		shirtData[args[0]].category = cat;
+		saveShirtData();
+	}
+}
+
 commandList["ayuda"] = {
 	roles: ["guest", "player", "admin"],
 	help: " <comando>: muestra una ayuda del comando ingresado",
@@ -115,9 +258,9 @@ commandList["radio"] = {
 		}
 		
 		var num = +args[0]
-		if (!validateNumber(num, 11, 18)) {
+		if (!validateNumber(num, 11, 17)) {
 			throwCmd(player, "no ingresaste un numero válido");
-			botAnnounce(player, "Solo se permiten números entre 10 y 17");
+			botAnnounce(player, "Solo se permiten números entre 12 y 17");
 			return;
 		}
 
@@ -184,6 +327,7 @@ commandList["prefijo"] = {
 }
 
 function setAFKmode(player) {
+	clearAFK(player);
 	room.setPlayerTeam(player.id, teams.spec);
 	removeFromQueue(player);
 	botData[botIDs[player.id]].last = setTimeout(() => {
@@ -191,18 +335,20 @@ function setAFKmode(player) {
 	}, 60000 * 10);
 }
 
+function clearAFK(player) {
+	clearTimeout(botData[botIDs[player.id]].last);
+}
+
 commandList["afk"] = {
 	roles: ["player", "guest", "admin"],
 	help: ": te pone (o te saca) del modo AFK",
 	action(player, args) {
-		// clear afk timeout (if not afk) or kick timeout (if afk)
-		clearTimeout(botData[botIDs[player.id]].last);
-		
 		if (player.team != teams.spec || isInQueue(player)) {
 			catchCmd(player, "Entraste en modo AFK");
 			setAFKmode(player);
 		} else {
 			catchCmd(player, "Saliste del modo AFK");
+			clearAFK(player);
 			playerQueue.push(player.id);
 		}
 	}
@@ -260,13 +406,15 @@ function checkQueue() {
 }
 
 room.onTeamVictory = function(scores) {
-	var loserTeamId = (scores.red > scores.blue ? teams.blue : teams.red);
-	var loserTeam = getTeam(loserTeamId);
+	lastLoser = (scores.red > scores.blue ? teams.blue : teams.red);
+	var loserTeam = getTeam(lastLoser);
 
 	loserTeam.forEach(player => {
 		room.setPlayerTeam(player.id, teams.spec);
 		playerQueue.push(player.id);
 	});
+
+	setTimeout(room.startGame, 5000);
 }
 
 room.onGameTick = function() {
@@ -276,7 +424,6 @@ room.onGameTick = function() {
 }
 
 room.onPlayerLeave = function(player) {
-	clearTimeout(botData[botIDs[player.id]].last);
 	removeFromQueue(player);
 }
 
@@ -380,6 +527,7 @@ function executeCommand(player, cmd) {
 }
 
 function setInactivityTimeout(player) {
+	clearAFK(player);
 	botData[botIDs[player.id]].last = setTimeout(() => {
 		botAnnounce(player, "Inactividad detectada, se te asignará modo AFK en 10 s");
 		botData[botIDs[player.id]].last = setTimeout(() => {
@@ -390,10 +538,9 @@ function setInactivityTimeout(player) {
 }
 
 room.onPlayerActivity = function(player) {
-	clearTimeout(botData[botIDs[player.id]].last);
-	
-	if (player.team == teams.spec) return;
-	setInactivityTimeout(player);
+	if (isPlaying(player)) {
+		setInactivityTimeout(player);
+	}
 }
 
 room.onGameStop = function(player) {
@@ -404,7 +551,22 @@ function setRadius(player) {
 	room.setPlayerDiscProperties(player.id, { radius: botData[botIDs[player.id]].radius });
 }
 
+function chooseShirtColors() {
+	var shirts = Object.keys(shirtData).filter(shirt => shirt != "CAT");
+	var randi = Math.floor(Math.random() * shirts.length);
+	
+	if (lastLoser != 0) {
+		setTeamShirt(lastLoser, shirts[randi]);
+	} else {
+		setTeamShirt(teams.red, shirts[randi]);
+		shirts = shirts.filter(shirt => shirt != shirts[randi]);
+		randi = Math.floor(Math.random() * shirts.length);
+		setTeamShirt(teams.blue, shirts[randi]);
+	}
+}
+
 room.onGameStart = function(player) {
+	chooseShirtColors();
 	room.getPlayerList().forEach(player => {
 		if (player.team != teams.spec) {
 			setRadius(player);
@@ -423,11 +585,10 @@ room.onPositionsReset = function() {
 
 function manageAdminTeamChange(player, admin) {
 	if (player.team == teams.spec) {
-		clearTimeout(botData[botIDs[player.id]].last);
-		setAFKmode(player);
 		botWarning(player, "El admin " + admin.name + " te puso afk");
+		setAFKmode(player);
 	} else {
-		playerQueue.filter(pid => pid != player.id);
+		removeFromQueue(player);
 	}
 }
 
@@ -440,7 +601,8 @@ room.onPlayerTeamChange = function(player, admin) {
 		manageAdminTeamChange(player, admin);
 	}
 
-	if (room.getScores() != null && player.team != teams.spec) {
+	if (isPlaying(player)) {
+		setInactivityTimeout(player);
 		setRadius(player);
 	}
 }
@@ -488,6 +650,10 @@ function saveBotData() {
 	writeRecord(JSON.stringify(botDataMinusGuest), "4bc9bcb0-d74f-4506-a4aa-dd0b137fa329");
 }
 
+function saveShirtData() {
+	writeRecord(JSON.stringify(shirtData), "92a45d2e-2b82-4bb9-b390-a45f4a37ea0f");
+}
+
 function readRecord(ID, f) {
 	var myHeaders = new Headers();
 	myHeaders.append("Content-Type", "application/json"); 
@@ -508,11 +674,15 @@ function readRecord(ID, f) {
 function loadBotData(data) {
 	// playerData
 	botData = { ...data };
-	console.log(botData);
+}
+
+function loadShirtData(data) {
+	shirtData = { ...data };
 }
 
 setInterval(checkQueue, 500);
 readRecord("4bc9bcb0-d74f-4506-a4aa-dd0b137fa329", loadBotData);
+readRecord("92a45d2e-2b82-4bb9-b390-a45f4a37ea0f", loadShirtData);
 setGameMode({
 	maxPlayers: 4,
 	scoreLimit: 4,
