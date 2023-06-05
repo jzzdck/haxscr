@@ -1,7 +1,7 @@
 var room = HBInit({
-	roomName: "𝗙𝗨𝗧𝗦𝗔𝗟 𝘅𝟰 + 𝗕𝗢𝗧 🤖 (test)",
+	roomName: "fucsal x4 re de una 🤖",
 	public: false,
-	token: "thr1.AAAAAGR2ewvPcMuf12X8UA.RB2QDig98-s",
+	token: "thr1.AAAAAGR8ix-vDJ4do3aVKg.ty7FNb1XBlA",
 	maxPlayers: 16,
 	noPlayer: true
 });
@@ -14,6 +14,7 @@ const teams = {
 	blue: 2
 }
 
+var ballKickQueue = new Array();
 var gameMode = new Object();
 
 function gameBeingPlayed() {
@@ -87,7 +88,7 @@ function botWarning(player, msg) {
 function registerPlayer(player) {
 	botData[player.name] = botData[botIDs[player.id]];
 	botIDs[player.id] = player.name;
-	botData[player.name].role = "player";
+	botData[player.name] = { role: "player", mp: 0, mw: 0, goals: 0, assists: 0 };
 }
 
 function showCmds(player) {
@@ -455,6 +456,16 @@ function theOtherTeam(teamID) {
 	return 3-teamID;
 }
 
+room.onPlayerBallKick = function(player) {
+	if (ballKickQueue[0] == player.id) return;
+
+	ballKickQueue.unshift(player.id);
+
+	if (ballKickQueue.length > 2) {
+		ballKickQueue.pop();
+	}
+}
+
 room.onTeamVictory = function(scores) {
 	lastLoser = (scores.red > scores.blue ? teams.blue : teams.red);
 	if (teamsCompleted()) {
@@ -493,7 +504,11 @@ function loadGuestSession(player) {
 		conn: player.conn,
 		role: "guest",
 		prefix: null,
-		radius: 15
+		radius: 15,
+		goals: 0,
+		assists: 0,
+		mp: 0,
+		mw: 0
 	}
 }
 
@@ -599,6 +614,32 @@ room.onPlayerActivity = function(player) {
 	}
 }
 
+function botGoal(player, ownGoal) {
+	var playerData = botData[botIDs[player.id]];
+	playerData.goals += 1;
+	var msg = "¡Gol " + (ownGoal ? "en contra " : "") + "de " + playerData.nick + "!";
+	room.sendAnnouncement("🤖: " + msg, null, getPlayerChatColor(player), "bold", 1);
+}
+
+function botAssist(player) {
+	var playerData = botData[botIDs[player.id]];
+	var msg = "¡Asistido por " + playerData.nick + "!";
+	playerData.assists += 1;
+	room.sendAnnouncement("🤖: " + msg, null, getPlayerChatColor(player), "bold", 1);
+}
+
+room.onTeamGoal = function(team) {
+	if (!gameBeingPlayed() || !teamsCompleted()) return;
+	
+	var lastKick = room.getPlayer(ballKickQueue[0]);
+	var ownGoal = (lastKick.team != team);
+	botGoal(lastKick, ownGoal);
+
+	var lastPass = room.getPlayer(ballKickQueue[1]);
+	if (lastPass == null || lastPass.team != team) return;
+	botAssist(player);
+}
+
 room.onGameStop = function(player) {
 	saveBotData();
 }
@@ -622,6 +663,7 @@ function chooseShirtColors() {
 }
 
 room.onGameStart = function(player) {
+	ballKickQueue = [];
 	chooseShirtColors();
 	room.getPlayerList().forEach(player => {
 		if (player.team != teams.spec) {
@@ -637,6 +679,8 @@ room.onPositionsReset = function() {
 			setRadius(player);
 		}
 	});
+
+	ballKickQueue = [];
 }
 
 function manageAdminTeamChange(player, admin) {
