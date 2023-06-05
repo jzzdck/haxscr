@@ -6,6 +6,51 @@ var room = HBInit({
 	noPlayer: true
 });
 
+// player queue manages players joining and leaving the room
+let playerQueue = class {
+	#queue = new Array();
+	
+	add(player) {
+		this.#queue.push(player.id);
+	}
+
+	remove(player) {
+		this.#queue = this.#queue.filter(pid => pid == player.id);
+	}
+
+	has(player) {
+		return this.#queue.includes(player.id);
+	}
+
+	check() {
+		if (this.#priority == 0) return;
+		
+		var player_id = this.queue.shift();
+		if (playerStillWaiting(player_id)) {
+			room.setPlayerTeam(player_id, this.#priority);
+		} else {
+			this.remove(player_id);
+		}
+	}
+
+	get #priority() {
+		var length = teamLength();
+		if (length.reds >= gameMode.maxPlayers && length.blues >= gameMode.maxPlayers) {
+			return teams.spec;
+		}
+
+		if (length.reds > length.blues) {
+			return teams.blue;
+		} else {
+			return teams.red;
+		}
+	}
+}
+
+let bot = class {
+	
+}
+
 var adminAuths = [ "ob40bCoCsu02IF9ZotmxSUVn57evwhFEoMvuom5eEzM" ];
 
 const teams = {
@@ -35,16 +80,7 @@ function setGameMode(newGameMode) {
 
 var prefixs = ['⚽', '👟', '🥊', '🧤', '🧠', '💩', '🐴', '🐓'];
 var lastLoser = 0;
-var playerQueue = new Array();
 var guestCount = 0;
-
-function removeFromQueue(player) {
-	playerQueue = playerQueue.filter(pid => pid != player.id);
-}
-
-function isInQueue(player) {
-	return playerQueue.find(pid => pid == player.id);
-}
 
 var commandList = new Object();
 var botData = new Object();
@@ -372,7 +408,7 @@ commandList["prefijo"] = {
 function setAFKmode(player) {
 	clearAFK(player);
 	room.setPlayerTeam(player.id, teams.spec);
-	removeFromQueue(player);
+	playerQueue.remove(player);
 	botData[botIDs[player.id]].last = setTimeout(() => {
 		room.kickPlayer(player.id, "🤖: 10 minutos AFK");
 	}, 60000 * 10);
@@ -386,13 +422,13 @@ commandList["afk"] = {
 	roles: ["player", "guest", "admin"],
 	help: ": te pone (o te saca) del modo AFK",
 	action(player, args) {
-		if (player.team != teams.spec || isInQueue(player)) {
+		if (player.team != teams.spec || playerQueue.has(player)) {
 			catchCmd(player, "Entraste en modo AFK");
 			setAFKmode(player);
 		} else {
 			catchCmd(player, "Saliste del modo AFK");
 			clearAFK(player);
-			playerQueue.push(player.id);
+			playerQueue.add(player);
 		}
 	}
 }
@@ -405,7 +441,7 @@ function getTeam(team) {
 function countAFKs() {
 	 var players = room.getPlayerList();
 	 players = players.filter(player => player.team == teams.spec);
-	 players = players.filter(player => !isInQueue(player.id));
+	 players = players.filter(player => !playerQueue.has(player));
 
 	 return players.length;
 }
@@ -419,33 +455,13 @@ function teamLength() {
 	};
 }
 
-function calcPriority() {
-	var length = teamLength();
-	if (length.reds >= gameMode.maxPlayers && length.blues >= gameMode.maxPlayers) {
-		return teams.spec;
-	}
-
-	if (length.reds > length.blues) {
-		return teams.blue;
-	} else {
-		return teams.red;
-	}
-}
-
 function playerStillWaiting(player_id) {
 	return room.getPlayer(player_id) != null;
 }
 
 function checkQueue() {
 	var priority = calcPriority();
-	if (priority != 0) {
-		var player_id = playerQueue.shift();
-		if (playerStillWaiting(player_id)) {
-			room.setPlayerTeam(player_id, priority);
-		} else {
-			removeFromQueue(player_id);
-		}
-	}
+	
 }
 
 function teamsCompleted() {
@@ -478,7 +494,7 @@ room.onTeamVictory = function(scores) {
 
 	loserTeam.forEach(player => {
 		room.setPlayerTeam(player.id, teams.spec);
-		playerQueue.push(player.id);
+		playerQueue.add(player);
 	});
 
 	setTimeout(room.startGame, 5000);
@@ -491,7 +507,7 @@ room.onGameTick = function() {
 }
 
 room.onPlayerLeave = function(player) {
-	removeFromQueue(player);
+	playerQueue.remove(player);
 }
 
 function loadGuestSession(player) {
@@ -539,7 +555,7 @@ function login(player) {
 }
 
 room.onPlayerJoin = function(player) {
-	playerQueue.push(player.id);
+	playerQueue.add(player);
 
 	if (!isRegistered(player)) {
 		giveWelcome(player);
@@ -688,7 +704,7 @@ function manageAdminTeamChange(player, admin) {
 		botWarning(player, "El admin " + admin.name + " te puso afk");
 		setAFKmode(player);
 	} else {
-		removeFromQueue(player);
+		playerQueue.remove(player);
 	}
 }
 
